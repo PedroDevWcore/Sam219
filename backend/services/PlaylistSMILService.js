@@ -230,8 +230,24 @@ class PlaylistSMILService {
             await this.saveSMILToServer(serverId, userLogin, smilContent, smilPath);
 
             console.log(`✅ Arquivo SMIL de agendamentos gerado: ${smilPath}`);
-            return { 
-                success: true, 
+
+            // NOVO: Recarregar playlists no Wowza sem reiniciar streaming
+            try {
+                console.log(`🔄 Recarregando agendamentos no Wowza para ${userLogin}...`);
+                const StreamingControlService = require('./StreamingControlService');
+                const reloadResult = await StreamingControlService.recarregarPlaylistsAgendamentos(userLogin);
+
+                if (reloadResult.success) {
+                    console.log(`✅ Agendamentos recarregados com sucesso no Wowza`);
+                } else {
+                    console.warn(`⚠️ Aviso ao recarregar agendamentos:`, reloadResult.message);
+                }
+            } catch (reloadError) {
+                console.warn(`⚠️ Erro ao recarregar agendamentos (continuando):`, reloadError.message);
+            }
+
+            return {
+                success: true,
                 smil_path: smilPath,
                 agendamentos_count: agendamentoRows.length,
                 total_videos: smilContent.split('<video').length - 1
@@ -429,29 +445,44 @@ class PlaylistSMILService {
 
             // Salvar arquivo no servidor
             const smilPath = `/home/streaming/${userLogin}/playlists_agendamentos.smil`;
-            
+
             try {
                 const saveResult = await this.saveSMILToServer(serverId, userLogin, smilContent, smilPath);
                 if (!saveResult.success) {
                     console.warn('Aviso ao salvar SMIL:', saveResult.error);
                 }
                 console.log(`✅ Arquivo SMIL salvo: ${smilPath}`);
-                
+
                 // Aguardar arquivo ser criado
                 await new Promise(resolve => setTimeout(resolve, 2000));
-                
+
                 // Verificar se arquivo foi criado
                 const fileExists = await SSHManager.getFileInfo(serverId, smilPath);
                 if (!fileExists.exists) {
                     console.warn(`⚠️ Arquivo SMIL não foi encontrado após criação: ${smilPath}`);
+                }
+
+                // NOVO: Recarregar playlists no Wowza sem reiniciar streaming
+                try {
+                    console.log(`🔄 Recarregando playlists no Wowza para ${userLogin}...`);
+                    const StreamingControlService = require('./StreamingControlService');
+                    const reloadResult = await StreamingControlService.recarregarPlaylistsAgendamentos(userLogin);
+
+                    if (reloadResult.success) {
+                        console.log(`✅ Playlists recarregadas com sucesso no Wowza`);
+                    } else {
+                        console.warn(`⚠️ Aviso ao recarregar playlists:`, reloadResult.message);
+                    }
+                } catch (reloadError) {
+                    console.warn(`⚠️ Erro ao recarregar playlists (continuando):`, reloadError.message);
                 }
             } catch (smilError) {
                 console.warn('Aviso SMIL:', smilError.message);
                 // Continuar sem falhar
             }
 
-            return { 
-                success: true, 
+            return {
+                success: true,
                 smil_path: smilPath,
                 playlist_name: playlist.nome,
                 videos_count: videoRows.length,

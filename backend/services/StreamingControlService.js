@@ -1,5 +1,6 @@
 const SSHManager = require('../config/SSHManager');
 const db = require('../config/database');
+const DigestFetch = require('digest-fetch');
 
 class StreamingControlService {
     constructor() {
@@ -461,6 +462,113 @@ class StreamingControlService {
         } catch (error) {
             console.error('Erro ao registrar log geral:', error);
         }
+    }
+
+    /**
+     * Recarregar playlists/agendamentos no Wowza sem reiniciar streaming
+     * Equivalente à função PHP recarregar_playlists_agendamentos()
+     */
+    async recarregarPlaylistsAgendamentos(login) {
+        try {
+            const { streaming, server } = await this.getStreamingData(login);
+
+            // Decodificar senha do servidor
+            const serverPassword = this.decodePassword(server.senha);
+            const serverIp = server.ip;
+
+            // URL do endpoint Wowza schedules
+            const url = `http://${serverIp}:555/schedules?appName=${login}&action=reloadSchedule`;
+
+            console.log(`🔄 Recarregando playlists para: ${login}`);
+            console.log(`📍 URL: ${url}`);
+
+            // Criar cliente Digest Fetch
+            const client = new DigestFetch('admin', serverPassword, {
+                algorithm: 'MD5'
+            });
+
+            // Fazer requisição com retry
+            let retries = 0;
+            const maxRetries = 10;
+            let lastError = null;
+
+            while (retries < maxRetries) {
+                try {
+                    const response = await client.fetch(url, {
+                        method: 'GET',
+                        headers: {
+                            'User-Agent': 'Painel de Streaming 3.0.0'
+                        }
+                    });
+
+                    if (response.ok) {
+                        const text = await response.text();
+
+                        if (text.includes('DONE')) {
+                            console.log(`✅ Playlists recarregadas com sucesso para ${login}`);
+
+                            // Registrar log
+                            await this.logStreamingAction(
+                                streaming.codigo,
+                                'Playlists/agendamentos recarregados sem reiniciar streaming'
+                            );
+
+                            return {
+                                success: true,
+                                message: 'Playlists recarregadas com sucesso',
+                                login: login
+                            };
+                        } else {
+                            console.warn(`⚠️ Resposta inesperada do Wowza: ${text}`);
+                            lastError = `Resposta inesperada: ${text}`;
+                        }
+                    } else {
+                        console.warn(`⚠️ Status HTTP ${response.status}: ${response.statusText}`);
+                        lastError = `HTTP ${response.status}: ${response.statusText}`;
+                    }
+
+                    // Incrementar retry e aguardar
+                    retries++;
+                    if (retries < maxRetries) {
+                        await new Promise(resolve => setTimeout(resolve, 2000));
+                    }
+
+                } catch (fetchError) {
+                    console.warn(`Tentativa ${retries + 1}/${maxRetries} falhou:`, fetchError.message);
+                    lastError = fetchError.message;
+                    retries++;
+
+                    if (retries < maxRetries) {
+                        await new Promise(resolve => setTimeout(resolve, 2000));
+                    }
+                }
+            }
+
+            // Se chegou aqui, todas as tentativas falharam
+            return {
+                success: false,
+                message: `Falha após ${maxRetries} tentativas`,
+                error: lastError
+            };
+
+        } catch (error) {
+            console.error('Erro ao recarregar playlists:', error);
+            return {
+                success: false,
+                message: error.message || 'Não foi possível recarregar as playlists',
+                error: error.message
+            };
+        }
+    }
+
+
+    /**
+     * Decodificar senha (implementação básica - ajustar conforme o code_decode do PHP)
+     */
+    decodePassword(encodedPassword) {
+        // Por enquanto, retornar a senha sem decodificação
+        // Se o sistema PHP usa code_decode($senha, "D"), implementar a lógica aqui
+        return encodedPassword;
     }
 }
 

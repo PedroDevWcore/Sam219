@@ -865,6 +865,41 @@ router.get('/obs-status', async (req, res) => {
 });
 
 /**
+ * POST /api/streaming-control/recarregar-playlists
+ * Recarregar playlists/agendamentos sem reiniciar streaming
+ */
+router.post('/recarregar-playlists', async (req, res) => {
+    try {
+        const { login } = req.body;
+
+        if (!login) {
+            return res.status(400).json({
+                success: false,
+                message: 'Login do streaming é obrigatório'
+            });
+        }
+
+        console.log(`🔄 Recarregando playlists para: ${login}`);
+
+        const result = await StreamingControlService.recarregarPlaylistsAgendamentos(login);
+
+        if (result.success) {
+            return res.json(result);
+        } else {
+            return res.status(500).json(result);
+        }
+
+    } catch (error) {
+        console.error('Erro ao recarregar playlists:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Erro interno ao recarregar playlists',
+            error: error.message
+        });
+    }
+});
+
+/**
  * GET /api/streaming/source-urls
  * Obter URLs de origem para transmissão
  */
